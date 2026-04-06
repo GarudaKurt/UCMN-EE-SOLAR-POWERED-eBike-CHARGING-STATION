@@ -19,8 +19,8 @@ class KEYPADMENU {
       {'3', '6', '9', '#'},
       {'A', 'B', 'C', 'D'}
     };
-    byte rowPins[ROWS] = {31, 32, 33, 34};
-    byte colPins[COLS] = {35, 36, 37, 38};
+    byte rowPins[ROWS] = {22, 23, 24, 25};
+    byte colPins[COLS] = {26, 27, 28, 29};
     Keypad* keypad;  // Pointer
 };
 
