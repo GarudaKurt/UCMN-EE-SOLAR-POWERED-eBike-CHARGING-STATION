@@ -6,11 +6,8 @@
 //    1 peso  =  3 minutes  (linear, no blocks)
 //    P1  =   3 min
 //    P5  =  15 min
-//    P7  =  21 min   ← every peso counts
 //    P10 =  30 min
 //    P20 =  60 min
-//    P40 = 120 min
-//    P65 = 195 min  (3h 15m)
 //
 //  Two modes of operation:
 //  1. KEYPAD ENTRY  — user types target minutes → system shows
@@ -30,8 +27,8 @@
 // -----------------------------------------------------------
 #define COIN_PIN   2    // Allan Universal coin slot — interrupt pin
 #define SSR_PIN    8    // SSR-40DA control (HIGH = relay ON)
-#define BTN_START 30    // START push button (INPUT_PULLUP, LOW = pressed)
-#define BTN_STOP  31    // STOP  push button (INPUT_PULLUP, LOW = pressed)
+#define BTN_START 31    // START push button (INPUT_PULLUP, LOW = pressed)
+#define BTN_STOP  32    // STOP  push button (INPUT_PULLUP, LOW = pressed)
 
 #define PULSES_PER_PESO  1   // Allan Universal: 1 pulse = P1
 
@@ -101,9 +98,10 @@ void beginSession(int targetMinutes) {
   coinsInserted     = 0;
   minutesGranted    = 0;
   inputBuffer       = "";
-  lastDisplayUpdate = 0;
+  lastDisplayUpdate = millis();
   currentState      = STATE_AWAITING_COIN;
 
+  // ✅ showCoinWaiting called ONCE here — draws full static layout
   lcd.showCoinWaiting(requiredPesos, coinsInserted, minutesGranted);
   lcd.resetCoinAnim();
 
@@ -131,9 +129,10 @@ void handleCoins() {
     currentState = STATE_READY;
     lcd.showReadyScreen(minutesGranted, coinsInserted);
   } else {
-    // Refresh live display immediately on each coin
-    lcd.showCoinWaiting(requiredPesos, coinsInserted, minutesGranted);
-    lastDisplayUpdate = millis();
+    // ✅ updateCoinWaiting — partial redraw only (progress bar +
+    //    inserted/need values + time granted). Header, labels,
+    //    hint text, and animation zone are never touched.
+    lcd.updateCoinWaiting(requiredPesos, coinsInserted, minutesGranted);
   }
 }
 
@@ -192,10 +191,8 @@ void handleKeyIdle(char key) {
   else if   (key == 'C') { beginSession(SHORTCUT_C_MINS); }
 }
 
-// SELECT — building a custom minute value
 void handleKeySelect(char key) {
   if (key >= '0' && key <= '9') {
-    // Block leading zeros; max 3 digits (≤ 999 min)
     if (!(inputBuffer.length() == 0 && key == '0') &&
          inputBuffer.length() < 3) {
       inputBuffer += key;
@@ -204,18 +201,15 @@ void handleKeySelect(char key) {
     lcd.showSelectScreen(inputBuffer, preview);
 
   } else if (key == '#') {
-    // --- CONFIRM ---
     int mins = inputBuffer.toInt();
 
     if (mins < MIN_MINUTES) {
-      // Snap up to minimum and continue
       lcd.showError("Min 3 min\n(at least P1)");
       delay(1800);
       inputBuffer = "";
       lcd.showSelectScreen(inputBuffer, 0);
 
     } else if (mins > MAX_MINUTES) {
-      // Over maximum
       String err = "Max ";
       err += MAX_MINUTES;
       err += " min";
@@ -225,18 +219,15 @@ void handleKeySelect(char key) {
       lcd.showSelectScreen(inputBuffer, 0);
 
     } else {
-      // Valid — start session
       beginSession(mins);
     }
 
   } else if (key == '*') {
-    // --- BACKSPACE ---
     if (inputBuffer.length() > 0) {
       inputBuffer.remove(inputBuffer.length() - 1);
       int preview = (inputBuffer.length() > 0) ? inputBuffer.toInt() : 0;
       lcd.showSelectScreen(inputBuffer, preview);
     } else {
-      // Buffer empty → back to welcome
       currentState = STATE_IDLE;
       lcd.showWelcome();
     }
@@ -252,7 +243,6 @@ void handleKeySelect(char key) {
 void loop() {
   char key = keypadMenu.getInputs();
 
-  // --- Drain ISR coin counter atomically ---
   noInterrupts();
   int pulses = coinPulseCount;
   coinPulseCount = 0;
@@ -278,11 +268,6 @@ void loop() {
       break;
 
     case STATE_AWAITING_COIN:
-      // Refresh every 500ms in case display drifted
-      if (millis() - lastDisplayUpdate > 500) {
-        lcd.showCoinWaiting(requiredPesos, coinsInserted, minutesGranted);
-        lastDisplayUpdate = millis();
-      }
       lcd.tickCoinAnim();          // non-blocking coin drop tick
       if (stopPressed) cancelSession();
       break;
@@ -312,5 +297,5 @@ void loop() {
       break;
   }
 
-  delay(50);   // Loop pacing / button debounce
+  delay(50);
 }

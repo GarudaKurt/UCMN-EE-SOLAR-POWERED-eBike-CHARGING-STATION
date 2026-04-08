@@ -272,58 +272,33 @@ void LCDDISPLAY::showSelectScreen(String inputBuffer, int previewMinutes) {
 }
 
 // ============================================================
-//  COIN WAITING SCREEN
-//  minutesGranted  =  coinsInserted * MINS_PER_PESO  (exact, live)
+//  COIN WAITING SCREEN  —  STATIC LAYOUT  (call ONCE on entry)
+//
+//  Draws the full screen skeleton: header, "Required" label,
+//  static hint text, and the "Time granted:" label.
+//  Then calls updateCoinWaiting() for the live parts.
+//  The coin animation zone (x=165,y=218,w=65,h=34) is left
+//  blank here — tickCoinAnim() owns it exclusively.
 // ============================================================
 void LCDDISPLAY::showCoinWaiting(int requiredPesos, int coinsInserted, int minutesGranted) {
   tft->fillScreen(C_BLACK);
 
   drawHeader(C_ORANGE, "Insert Coins");
 
-  // Required
+  // "Required: Pxx"  — never changes during this screen
   tft->setTextColor(C_YELLOW);
   tft->setTextSize(2);
   tft->setCursor(10, 52);
   tft->print("Required: P");
   tft->print(requiredPesos);
 
-  // Progress bar
-  drawProgressBar(10, 78, 220, 26, coinsInserted, requiredPesos, C_GREEN);
-
-  // Inserted / still needed
-  tft->setTextColor(C_WHITE);
-  tft->setTextSize(2);
-  tft->setCursor(10, 115);
-  tft->print("Inserted: P");
-  tft->print(coinsInserted);
-
-  int stillNeed = requiredPesos - coinsInserted;
-  if (stillNeed < 0) stillNeed = 0;
-  tft->setTextColor(stillNeed > 0 ? C_YELLOW : C_GREEN);
-  tft->setCursor(10, 142);
-  tft->print("Need:     P");
-  tft->print(stillNeed);
-
-  // Divider
-  tft->drawLine(0, 172, 240, 172, C_DKGRAY);
-
-  // Live time granted  (updates on every peso)
+  // Static label above the live time value
   tft->setTextColor(C_CYAN);
   tft->setTextSize(1);
   tft->setCursor(10, 180);
   tft->print("Time granted:");
 
-  tft->setTextColor(C_WHITE);
-  tft->setTextSize(3);
-  tft->setCursor(10, 193);
-  if (minutesGranted > 0) {
-    printDuration(minutesGranted);
-  } else {
-    tft->setTextColor(C_DKGRAY);
-    tft->print("--");
-  }
-
-  // Each peso reminder + coin icon zone (x=155,y=220..248 reserved for tickCoinAnim)
+  // Bottom hint — never changes
   tft->setTextColor(C_DKGRAY);
   tft->setTextSize(1);
   tft->setCursor(10, 255);
@@ -331,9 +306,75 @@ void LCDDISPLAY::showCoinWaiting(int requiredPesos, int coinsInserted, int minut
   tft->print(MINS_PER_PESO);
   tft->print(" min  |  [STOP] cancel");
 
-  // Prime first animation frame immediately
+  // Draw live values for the first time
+  updateCoinWaiting(requiredPesos, coinsInserted, minutesGranted);
+
+  // Prime animation — first frame draws immediately on next tick
   _coinAnimFrame = 0;
   _coinAnimLast  = 0;
+}
+
+// ============================================================
+//  COIN WAITING SCREEN  —  DYNAMIC UPDATE  (call on each coin)
+//
+//  Only redraws the three regions that change per coin insert:
+//    1. Progress bar          y=78..103
+//    2. Inserted / Need text  y=115..165
+//    3. Time granted value    y=193..232
+//
+//  Everything else (header, labels, hint, animation zone)
+//  is untouched — zero flicker on the rest of the screen.
+// ============================================================
+void LCDDISPLAY::updateCoinWaiting(int requiredPesos, int coinsInserted, int minutesGranted) {
+
+  // ----------------------------------------------------------
+  //  1. Progress bar
+  // ----------------------------------------------------------
+  tft->fillRect(10, 78, 220, 26, C_BLACK);          // erase old bar
+  drawProgressBar(10, 78, 220, 26, coinsInserted, requiredPesos, C_GREEN);
+
+  // ----------------------------------------------------------
+  //  2. Inserted amount
+  // ----------------------------------------------------------
+  tft->fillRect(10, 115, 220, 24, C_BLACK);          // erase old value
+  tft->setTextColor(C_WHITE);
+  tft->setTextSize(2);
+  tft->setCursor(10, 115);
+  tft->print("Inserted: P");
+  tft->print(coinsInserted);
+
+  // ----------------------------------------------------------
+  //  3. Still needed  (colour flips green when fully paid)
+  // ----------------------------------------------------------
+  int stillNeed = requiredPesos - coinsInserted;
+  if (stillNeed < 0) stillNeed = 0;
+
+  tft->fillRect(10, 142, 220, 24, C_BLACK);          // erase old value
+  tft->setTextColor(stillNeed > 0 ? C_YELLOW : C_GREEN);
+  tft->setTextSize(2);
+  tft->setCursor(10, 142);
+  tft->print("Need:     P");
+  tft->print(stillNeed);
+
+  // Divider — cheap to redraw, keeps it crisp
+  tft->drawLine(0, 172, 240, 172, C_DKGRAY);
+
+  // ----------------------------------------------------------
+  //  4. Time granted value
+  //     "Time granted:" label is static (drawn in showCoinWaiting)
+  //     Only the number below it changes here.
+  // ----------------------------------------------------------
+  tft->fillRect(10, 193, 150, 34, C_BLACK);          // erase old value
+                                                      // width=150 avoids coin anim zone (x=165)
+  tft->setTextSize(3);
+  tft->setCursor(10, 193);
+  if (minutesGranted > 0) {
+    tft->setTextColor(C_WHITE);
+    printDuration(minutesGranted);
+  } else {
+    tft->setTextColor(C_DKGRAY);
+    tft->print("--");
+  }
 }
 
 // ============================================================
@@ -585,14 +626,18 @@ void LCDDISPLAY::drawHomeIcon(uint8_t frame) {
 // ============================================================
 //  NON-BLOCKING ANIMATION  —  COIN WAITING SCREEN
 //
-//  Icon: falling coin  (4-frame bounce)
-//  Draw zone: x=165, y=220, w=60, h=30   (erased each frame)
+//  Icon: falling coin  (8-frame bounce)
+//  Draw zone: x=165, y=218, w=65, h=34   (erased each frame)
 //  Interval : ANIM_COIN_MS ms  (180ms default)
 //
 //  The coin slides down then bounces — simple circle at
-//  4 Y positions to imply motion without physics.
-//  Frame pattern:  0(top) → 1(mid) → 2(bottom) → 3(bounce-up)
+//  8 Y positions to imply motion without physics.
+//  Frame pattern:  0(top) → ... → 5(bottom) → ... → 7(bounce-up)
 //  Coin colour alternates gold / bright to fake a spin flash.
+//
+//  IMPORTANT: This zone (x=165..230, y=218..252) must NOT be
+//  touched by updateCoinWaiting() — they are kept separate so
+//  the animation never flickers when coins are inserted.
 // ============================================================
 void LCDDISPLAY::resetCoinAnim() {
   _coinAnimFrame = 0;

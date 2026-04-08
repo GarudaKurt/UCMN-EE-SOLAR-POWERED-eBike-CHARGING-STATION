@@ -11,6 +11,7 @@
 #define TFT_CS   10
 #define TFT_DC    9
 #define TFT_RST  12
+
 // TFT SDA (MOSI) = Pin 11  (hardware SPI)
 // TFT SCK        = Pin 13  (hardware SPI)
 
@@ -69,6 +70,7 @@ class LCDDISPLAY {
     void showWelcome();
     void showSelectScreen(String inputBuffer, int previewMinutes);
     void showCoinWaiting(int requiredPesos, int coinsInserted, int minutesGranted);
+    void updateCoinWaiting(int requiredPesos, int coinsInserted, int minutesGranted); // <-- NEW
     void showReadyScreen(int minutesGranted, int coinsInserted);
     void showChargingScreen(int minutesGranted);
     void showDoneScreen(bool earlyStop);
@@ -120,9 +122,9 @@ class LCDDISPLAY {
     static const uint16_t ANIM_HOME_MS = 600;   // frame interval ms
 
     // Coin screen: bouncing coin drop icon
-    // Zone: right side x=155,y=188 → 240,240  (beside granted time)
+    // Zone: right side x=155,y=218 → 240,252  (beside granted time)
     unsigned long _coinAnimLast  = 0;
-    uint8_t       _coinAnimFrame = 0;      // 0..3  (4-frame bounce)
+    uint8_t       _coinAnimFrame = 0;      // 0..7  (8-frame bounce)
     static const uint16_t ANIM_COIN_MS = 180;   // frame interval ms
 
     // Internal helpers
